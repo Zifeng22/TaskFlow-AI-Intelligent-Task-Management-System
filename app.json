@@ -20,6 +20,15 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-audio",
+      "expo-video",
+      "@react-native-community/datetimepicker",
+      "expo-sharing",
+      "expo-status-bar",
+      "expo-font",
+      "expo-asset"
+    ]
   }
 }
