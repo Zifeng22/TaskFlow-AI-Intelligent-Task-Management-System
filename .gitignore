@@ -42,3 +42,6 @@ yarn-error.*
 
 #AI API Key
 keys.ts
+
+# Navigation entry file
+src/navigation/index.tsx
