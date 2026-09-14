@@ -34,6 +34,7 @@ import CssThinkingLoader from "../../components/utils/CssThinkingLoader";
 const groq = new OpenAI({
   baseURL: GROQ_CONFIG.BASE_URL,
   apiKey: GROQ_CONFIG.API_KEY,
+  dangerouslyAllowBrowser: true, // This option allows the OpenAI client to be used in a browser environment, which is necessary for React Native apps that run on mobile devices.
 });
 
 export default function TaskEditScreen({ navigation, route }: any) {

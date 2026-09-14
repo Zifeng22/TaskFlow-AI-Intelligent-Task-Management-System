@@ -36,6 +36,7 @@ import { GROQ_CONFIG } from "../../../keys";
 const groq = new OpenAI({
   baseURL: GROQ_CONFIG.BASE_URL,
   apiKey: GROQ_CONFIG.API_KEY,
+  dangerouslyAllowBrowser: true, // Necessary for React Native mobile environments
 });
 
 export default function TaskListScreen({ navigation }: any) {
@@ -49,13 +50,9 @@ export default function TaskListScreen({ navigation }: any) {
   // ==========================================================
 
   const [loading, setLoading] = useState(true);
-
   const [tasks, setTasks] = useState<TaskData[]>([]);
-
   const [searchQuery, setSearchQuery] = useState("");
-
   const [isAiSearching, setIsAiSearching] = useState(false);
-
   const [aiMatchedKeys, setAiMatchedKeys] = useState<string[] | null>(null);
 
   const [aiRecommendation, setAiRecommendation] = useState<{
@@ -67,9 +64,7 @@ export default function TaskListScreen({ navigation }: any) {
 
   // Selected tasks
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
-
   const [selectionMode, setSelectionMode] = useState(false);
-
   const [actionLoading, setActionLoading] = useState(false);
 
   // ==========================================================
@@ -78,14 +73,9 @@ export default function TaskListScreen({ navigation }: any) {
 
   const backgroundColor = isDarkmode ? "#0F172A" : "#F8FAFC";
   const cardColor = isDarkmode ? "#1E293B" : "#FFFFFF";
-
   const textColor = isDarkmode ? "#F8FAFC" : "#0F172A";
   const subTextColor = isDarkmode ? "#94A3B8" : "#64748B";
-
   const borderColor = isDarkmode ? "#334155" : "#E2E8F0";
-
-  const inputBgColor = isDarkmode ? "#0F172A" : "#F1F5F9";
-
   const accentColor = "#6366F1";
 
   // ==========================================================
@@ -114,12 +104,10 @@ export default function TaskListScreen({ navigation }: any) {
         })) as TaskData[];
 
         setTasks(fetchedTasks);
-
         setLoading(false);
       },
       (error) => {
         console.log("Task listener error:", error);
-
         setLoading(false);
       },
     );
@@ -133,9 +121,7 @@ export default function TaskListScreen({ navigation }: any) {
 
   const getToday = () => {
     const today = new Date();
-
     today.setHours(0, 0, 0, 0);
-
     return today;
   };
 
@@ -178,32 +164,25 @@ export default function TaskListScreen({ navigation }: any) {
     }
 
     const today = getToday();
-
     const difference = dueDate.getTime() - today.getTime();
-
     const daysLeft = difference / (1000 * 60 * 60 * 24);
 
-    // Overdue
     if (daysLeft < 0) {
       return "overdue";
     }
 
-    // Within 1 week (0 to 7 days)
     if (daysLeft <= 7) {
       return "within_1_week";
     }
 
-    // Within 2 weeks (7 to 14 days)
     if (daysLeft <= 14) {
       return "within_2_weeks";
     }
 
-    // 1 month to 2 weeks (14 to 30 days)
     if (daysLeft <= 30) {
       return "within_1_month";
     }
 
-    // More than 1 month (> 30 days)
     return "more_than_1_month";
   };
 
@@ -215,27 +194,23 @@ export default function TaskListScreen({ navigation }: any) {
     const urgency = getTaskUrgency(task);
 
     if (urgency === "overdue") {
-      return "#991B1B"; // Dark Red
+      return "#991B1B";
     }
 
     if (urgency === "within_1_week") {
-      return "#EF4444"; // Red
+      return "#EF4444";
     }
 
     if (urgency === "within_2_weeks") {
-      return "#EC4899"; // Pink
+      return "#EC4899";
     }
 
     if (urgency === "within_1_month") {
-      return "#EAB308"; // Yellow
+      return "#EAB308";
     }
 
-    if (urgency === "more_than_1_month") {
-      return "#22C55E"; // Green
-    }
-
-    if (urgency === "completed") {
-      return "#22C55E"; // Green
+    if (urgency === "more_than_1_month" || urgency === "completed") {
+      return "#22C55E";
     }
 
     return borderColor;
@@ -276,62 +251,57 @@ export default function TaskListScreen({ navigation }: any) {
   };
 
   // ==========================================================
-  // PRIORITY SCORE
+  // PRIORITY SCORE (ENHANCED ALGORITHM)
   // ==========================================================
 
   const calculatePriorityScore = (task: TaskData, allTasks: TaskData[]) => {
     let score = 0;
 
-    if (task.priority === "High") {
-      score += 30;
-    } else if (task.priority === "Medium") {
-      score += 20;
-    } else {
-      score += 10;
-    }
-
-    score += (Number(task.importance) || 3) * 5;
-
+    // 1. Deadline Urgency (Heavy Weight)
     const dueDate = getParsedDate(task.dueDate);
-
     if (dueDate) {
       const today = getToday();
-
       const daysLeft =
         (dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
 
-      if (daysLeft < 0) {
-        score += 60;
-      } else if (daysLeft === 0) {
-        score += 50;
-      } else if (daysLeft <= 7) {
-        score += 40;
-      } else if (daysLeft <= 14) {
-        score += 25;
-      } else if (daysLeft <= 30) {
-        score += 10;
-      }
+      if (daysLeft < 0)
+        score += 100; // Overdue: Top Priority
+      else if (daysLeft === 0)
+        score += 80; // Due Today
+      else if (daysLeft <= 3)
+        score += 60; // Due in 3 days
+      else if (daysLeft <= 7)
+        score += 40; // Due this week
+      else if (daysLeft <= 14)
+        score += 20; // Due in 2 weeks
+      else score += 5; // Far future
     }
 
+    // 2. User Priority Rating
+    if (task.priority === "High") score += 25;
+    else if (task.priority === "Medium") score += 15;
+    else score += 5;
+
+    // 3. User Importance (1-5)
+    score += (Number(task.importance) || 3) * 4; // Max 20 points
+
+    // 4. Dependency Blocker
     if (task.dependsOnTaskId) {
       const parentTask = allTasks.find(
         (t) => t.taskId === task.dependsOnTaskId,
       );
-
       if (parentTask && parentTask.status !== "Completed") {
-        score -= 60;
+        score -= 80; // Penalize if blocked by incomplete parent task
       }
     }
 
-    if (task.status === "Completed") {
-      score = -100;
-    }
+    if (task.status === "Completed") score = -100;
 
     return score;
   };
 
   // ==========================================================
-  // AI SEMANTIC SEARCH (GROQ REFACTORED)
+  // AI SEMANTIC SEARCH
   // ==========================================================
 
   useEffect(() => {
@@ -340,7 +310,6 @@ export default function TaskListScreen({ navigation }: any) {
     if (!q || q.length < 2 || tasks.length === 0) {
       setAiMatchedKeys(null);
       setIsAiSearching(false);
-
       return;
     }
 
@@ -386,7 +355,6 @@ Tasks: ${JSON.stringify(candidateList)}`,
         }
 
         const parsed = JSON.parse(content);
-        // Extract array if wrapped in object or direct array
         const parsedKeys = Array.isArray(parsed)
           ? parsed
           : parsed.tasks || parsed.matchedKeys || [];
@@ -398,7 +366,6 @@ Tasks: ${JSON.stringify(candidateList)}`,
         }
       } catch (error) {
         console.log("AI Search Error:", error);
-
         setAiMatchedKeys(null);
       } finally {
         setIsAiSearching(false);
@@ -421,7 +388,6 @@ Tasks: ${JSON.stringify(candidateList)}`,
 
     const tasksWithScores = filtered.map((task) => ({
       ...task,
-
       aiScore: calculatePriorityScore(task, tasks),
     }));
 
@@ -429,7 +395,7 @@ Tasks: ${JSON.stringify(candidateList)}`,
   }, [tasks, searchQuery, aiMatchedKeys]);
 
   // ==========================================================
-  // AI TASK RECOMMENDATION (GROQ REFACTORED)
+  // AI TASK RECOMMENDATION (ENHANCED PROMPT)
   // ==========================================================
 
   const handleAiRecommendation = async () => {
@@ -440,7 +406,6 @@ Tasks: ${JSON.stringify(candidateList)}`,
         "AI Recommendation",
         "All tasks have already been completed.",
       );
-
       return;
     }
 
@@ -459,15 +424,20 @@ Tasks: ${JSON.stringify(candidateList)}`,
         startDate: task.startDate,
         dueDate: task.dueDate,
         dependsOnTaskId: task.dependsOnTaskId || null,
-
         calculatedScore: calculatePriorityScore(task, tasks),
       }));
 
       const systemPrompt = {
         role: "system" as const,
-        content: `You are an AI task management assistant. Select which task should be completed FIRST.
+        content: `You are an expert project manager. Determine which task the user must complete FIRST using these strict rules:
+1. OVERDUE or TODAY'S DEADLINES take absolute #1 priority, regardless of importance rating.
+2. If multiple tasks are due soon, pick the one with higher importance/priority.
+3. A task due in 2 days ALWAYS takes priority over a task due in 30 days, even if the 30-day task has higher importance.
+
+Current Today's Date: ${getToday().toISOString().split("T")[0]}
+
 Return ONLY valid JSON in this exact structure:
-{"taskId": "selected_task_id", "reason": "Short reason why."}`,
+{"taskId": "selected_task_id", "reason": "Short 1-sentence explanation focusing on deadline urgency and priority."}`,
       };
 
       const userPrompt = {
@@ -505,7 +475,6 @@ ${JSON.stringify(taskInformation)}`,
       });
     } catch (error: any) {
       console.log("AI Recommendation Error:", error);
-
       Alert.alert(
         "AI Error",
         error?.message || "Unable to generate a recommendation.",
@@ -524,7 +493,6 @@ ${JSON.stringify(taskInformation)}`,
       if (previous.includes(taskId)) {
         return previous.filter((id) => id !== taskId);
       }
-
       return [...previous, taskId];
     });
   };
@@ -534,15 +502,11 @@ ${JSON.stringify(taskInformation)}`,
   // ==========================================================
 
   const completeSelectedTasks = async () => {
-    if (selectedTaskIds.length === 0) {
-      return;
-    }
+    if (selectedTaskIds.length === 0) return;
 
     const user = auth.currentUser;
-
     if (!user) {
       Alert.alert("Authentication Error", "Please log in again.");
-
       return;
     }
 
@@ -553,14 +517,7 @@ ${JSON.stringify(taskInformation)}`,
 
       for (const taskId of selectedTaskIds) {
         const task = tasks.find((item) => item.taskId === taskId);
-
-        if (!task) {
-          continue;
-        }
-
-        if (task.status === "Completed") {
-          continue;
-        }
+        if (!task || task.status === "Completed") continue;
 
         await updateDoc(doc(db, "Tasks", taskId), {
           status: "Completed",
@@ -572,10 +529,9 @@ ${JSON.stringify(taskInformation)}`,
 
       if (completedCount > 0) {
         const userRef = doc(db, "Users", user.uid);
-
         await updateDoc(userRef, {
           points: increment(completedCount * 50),
-          rewards: String(completedCount * 50), // Updates rewards attribute
+          rewards: String(completedCount * 50),
         });
       }
 
@@ -590,7 +546,6 @@ ${JSON.stringify(taskInformation)}`,
       );
     } catch (error: any) {
       console.log("Complete tasks error:", error);
-
       Alert.alert(
         "Error",
         error?.message || "Unable to complete the selected tasks.",
@@ -605,36 +560,26 @@ ${JSON.stringify(taskInformation)}`,
   // ==========================================================
 
   const deleteSelectedTasks = () => {
-    if (selectedTaskIds.length === 0) {
-      return;
-    }
+    if (selectedTaskIds.length === 0) return;
 
     Alert.alert(
       "Delete Tasks",
       `Are you sure you want to delete ${selectedTaskIds.length} selected task(s)?`,
       [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-
+        { text: "Cancel", style: "cancel" },
         {
           text: "Delete",
           style: "destructive",
-
           onPress: async () => {
             setActionLoading(true);
-
             try {
               for (const taskId of selectedTaskIds) {
                 await deleteDoc(doc(db, "Tasks", taskId));
               }
-
               setSelectedTaskIds([]);
               setSelectionMode(false);
             } catch (error: any) {
               console.log("Delete tasks error:", error);
-
               Alert.alert("Error", "Unable to delete selected tasks.");
             } finally {
               setActionLoading(false);
@@ -650,38 +595,21 @@ ${JSON.stringify(taskInformation)}`,
   // ==========================================================
 
   const getPriorityColor = (priority: string) => {
-    if (priority === "High") {
-      return "#EF4444";
-    }
-
-    if (priority === "Medium") {
-      return "#F59E0B";
-    }
-
+    if (priority === "High") return "#EF4444";
+    if (priority === "Medium") return "#F59E0B";
     return "#22C55E";
   };
 
   // ==========================================================
-  // TASK CARD
+  // TASK CARD RENDER
   // ==========================================================
 
-  const renderTask = ({
-    item,
-  }: {
-    item: TaskData & {
-      aiScore: number;
-    };
-  }) => {
+  const renderTask = ({ item }: { item: TaskData & { aiScore: number } }) => {
     const isCompleted = item.status === "Completed";
-
     const isSelected = selectedTaskIds.includes(item.taskId);
-
     const urgency = getTaskUrgency(item);
-
     const urgencyColor = getUrgencyColor(item);
-
     const urgencyLabel = getUrgencyLabel(item);
-
     const isAiRecommended = aiRecommendation?.taskId === item.taskId;
 
     return (
@@ -689,57 +617,38 @@ ${JSON.stringify(taskInformation)}`,
         activeOpacity={0.8}
         style={[
           styles.taskCard,
-
           {
             backgroundColor: isAiRecommended
               ? isDarkmode
                 ? "#312E81"
                 : "#EEF2FF"
               : cardColor,
-
             borderColor: isAiRecommended ? accentColor : urgencyColor,
-
             borderLeftWidth: 5,
-
             opacity: isCompleted ? 0.65 : 1,
           },
         ]}
         onPress={() => {
           if (selectionMode) {
             toggleTaskSelection(item.taskId);
-
             return;
           }
-
-          navigation.navigate("TaskDetailScreen", {
-            taskId: item.taskId,
-          });
+          navigation.navigate("TaskDetailScreen", { taskId: item.taskId });
         }}
         onLongPress={() => {
           setSelectionMode(true);
-
           toggleTaskSelection(item.taskId);
         }}
       >
         {/* HEADER */}
-
         <View style={styles.cardHeader}>
-          <View
-            style={{
-              flex: 1,
-              flexDirection: "row",
-              alignItems: "center",
-            }}
-          >
-            {/* CHECK / SELECT / OVERDUE CROSS */}
+          <View style={{ flex: 1, flexDirection: "row", alignItems: "center" }}>
             {selectionMode ? (
               <View
                 style={[
                   styles.checkbox,
-
                   {
                     backgroundColor: isSelected ? accentColor : "transparent",
-
                     borderColor: isSelected ? accentColor : subTextColor,
                   },
                 ]}
@@ -753,35 +662,25 @@ ${JSON.stringify(taskInformation)}`,
                 name="checkmark-circle"
                 size={25}
                 color="#22C55E"
-                style={{
-                  marginRight: 8,
-                }}
+                style={{ marginRight: 8 }}
               />
             ) : urgency === "overdue" ? (
               <Ionicons
                 name="close-circle"
                 size={25}
                 color="#991B1B"
-                style={{
-                  marginRight: 8,
-                }}
+                style={{ marginRight: 8 }}
               />
             ) : (
               <Ionicons
                 name="ellipse-outline"
                 size={23}
                 color={urgencyColor}
-                style={{
-                  marginRight: 8,
-                }}
+                style={{ marginRight: 8 }}
               />
             )}
 
-            <View
-              style={{
-                flex: 1,
-              }}
-            >
+            <View style={{ flex: 1 }}>
               <RNText
                 style={{
                   fontSize: 16,
@@ -809,8 +708,7 @@ ${JSON.stringify(taskInformation)}`,
             </View>
           </View>
 
-          {/* PRIORITY */}
-
+          {/* PRIORITY BADGE */}
           <View
             style={[
               styles.priorityBadge,
@@ -832,7 +730,6 @@ ${JSON.stringify(taskInformation)}`,
         </View>
 
         {/* DESCRIPTION */}
-
         <RNText
           style={{
             marginTop: 10,
@@ -846,8 +743,7 @@ ${JSON.stringify(taskInformation)}`,
           {item.description || "No description provided."}
         </RNText>
 
-        {/* AI RECOMMENDATION */}
-
+        {/* AI RECOMMENDATION BANNER */}
         {isAiRecommended && (
           <View
             style={[
@@ -858,7 +754,6 @@ ${JSON.stringify(taskInformation)}`,
             ]}
           >
             <Ionicons name="sparkles" size={15} color={accentColor} />
-
             <RNText
               style={{
                 flex: 1,
@@ -874,11 +769,9 @@ ${JSON.stringify(taskInformation)}`,
         )}
 
         {/* FOOTER */}
-
         <View style={styles.cardFooter}>
           <View style={styles.footerItem}>
             <Ionicons name="play-outline" size={14} color={subTextColor} />
-
             <RNText
               style={{
                 fontSize: 12,
@@ -893,7 +786,6 @@ ${JSON.stringify(taskInformation)}`,
 
           <View style={styles.footerItem}>
             <Ionicons name="calendar-outline" size={14} color={urgencyColor} />
-
             <RNText
               style={{
                 fontSize: 12,
@@ -908,7 +800,6 @@ ${JSON.stringify(taskInformation)}`,
 
           <View style={styles.footerItem}>
             <Ionicons name="folder-outline" size={14} color={subTextColor} />
-
             <RNText
               style={{
                 fontSize: 12,
@@ -921,8 +812,7 @@ ${JSON.stringify(taskInformation)}`,
           </View>
         </View>
 
-        {/* DEPENDENCY */}
-
+        {/* DEPENDENCY BADGE */}
         {item.dependsOnTaskId && (
           <View
             style={{
@@ -933,7 +823,6 @@ ${JSON.stringify(taskInformation)}`,
             }}
           >
             <Ionicons name="link-outline" size={13} color={subTextColor} />
-
             <RNText
               style={{
                 marginLeft: 4,
@@ -950,19 +839,12 @@ ${JSON.stringify(taskInformation)}`,
   };
 
   // ==========================================================
-  // LOADING
+  // LOADING STATE
   // ==========================================================
 
   if (loading) {
     return (
-      <View
-        style={[
-          styles.centered,
-          {
-            backgroundColor,
-          },
-        ]}
-      >
+      <View style={[styles.centered, { backgroundColor }]}>
         <CssThinkingLoader isDarkmode={isDarkmode} size={44} speed={1.5} />
       </View>
     );
@@ -979,8 +861,6 @@ ${JSON.stringify(taskInformation)}`,
         backgroundColor: isDarkmode ? themeColor.dark200 : backgroundColor,
       }}
     >
-      {/* TOP NAV */}
-
       <TopNav
         middleContent={
           selectionMode
@@ -1018,7 +898,6 @@ ${JSON.stringify(taskInformation)}`,
         }}
       >
         {/* AI RECOMMENDATION BUTTON */}
-
         {!selectionMode && (
           <TouchableOpacity
             style={[
@@ -1044,8 +923,7 @@ ${JSON.stringify(taskInformation)}`,
           </TouchableOpacity>
         )}
 
-        {/* AI RECOMMENDATION RESULT */}
-
+        {/* AI RECOMMENDATION RESULT CARD */}
         {!selectionMode && aiRecommendation && (
           <View
             style={[
@@ -1063,7 +941,6 @@ ${JSON.stringify(taskInformation)}`,
               }}
             >
               <Ionicons name="sparkles" size={18} color={accentColor} />
-
               <RNText
                 style={{
                   marginLeft: 7,
@@ -1102,8 +979,7 @@ ${JSON.stringify(taskInformation)}`,
           </View>
         )}
 
-        {/* SEARCH */}
-
+        {/* SEARCH BAR */}
         {!selectionMode && (
           <View
             style={[
@@ -1118,9 +994,7 @@ ${JSON.stringify(taskInformation)}`,
               name="search-outline"
               size={18}
               color={subTextColor}
-              style={{
-                marginRight: 8,
-              }}
+              style={{ marginRight: 8 }}
             />
 
             <RNTextInput
@@ -1143,7 +1017,6 @@ ${JSON.stringify(taskInformation)}`,
         )}
 
         {/* SELECTION ACTION BAR */}
-
         {selectionMode && (
           <View
             style={[
@@ -1155,39 +1028,26 @@ ${JSON.stringify(taskInformation)}`,
             ]}
           >
             <TouchableOpacity
-              style={[
-                styles.actionButton,
-                {
-                  backgroundColor: "#22C55E",
-                },
-              ]}
+              style={[styles.actionButton, { backgroundColor: "#22C55E" }]}
               onPress={completeSelectedTasks}
               disabled={actionLoading}
             >
               <Ionicons name="checkmark" size={18} color="#FFFFFF" />
-
               <RNText style={styles.actionButtonText}>Complete</RNText>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[
-                styles.actionButton,
-                {
-                  backgroundColor: "#EF4444",
-                },
-              ]}
+              style={[styles.actionButton, { backgroundColor: "#EF4444" }]}
               onPress={deleteSelectedTasks}
               disabled={actionLoading}
             >
               <Ionicons name="trash-outline" size={18} color="#FFFFFF" />
-
               <RNText style={styles.actionButtonText}>Delete</RNText>
             </TouchableOpacity>
           </View>
         )}
 
         {/* COLOR LEGEND BAR */}
-
         {!selectionMode && (
           <View style={{ marginBottom: 8, marginTop: 4 }}>
             <ScrollView
@@ -1195,7 +1055,6 @@ ${JSON.stringify(taskInformation)}`,
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.legendContainer}
             >
-              {/* OVERDUE */}
               <View
                 style={[
                   styles.legendBadge,
@@ -1211,7 +1070,6 @@ ${JSON.stringify(taskInformation)}`,
                 </RNText>
               </View>
 
-              {/* WITHIN 1 WEEK */}
               <View
                 style={[
                   styles.legendBadge,
@@ -1227,7 +1085,6 @@ ${JSON.stringify(taskInformation)}`,
                 </RNText>
               </View>
 
-              {/* WITHIN 2 WEEKS */}
               <View
                 style={[
                   styles.legendBadge,
@@ -1243,7 +1100,6 @@ ${JSON.stringify(taskInformation)}`,
                 </RNText>
               </View>
 
-              {/* WITHIN 1 MONTH */}
               <View
                 style={[
                   styles.legendBadge,
@@ -1259,7 +1115,6 @@ ${JSON.stringify(taskInformation)}`,
                 </RNText>
               </View>
 
-              {/* MORE THAN 1 MONTH */}
               <View
                 style={[
                   styles.legendBadge,
@@ -1279,7 +1134,6 @@ ${JSON.stringify(taskInformation)}`,
         )}
 
         {/* TASK LIST */}
-
         <FlatList
           data={processedTasks}
           renderItem={renderTask}
@@ -1290,18 +1144,12 @@ ${JSON.stringify(taskInformation)}`,
           }}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={
-            <View
-              style={{
-                alignItems: "center",
-                marginTop: 60,
-              }}
-            >
+            <View style={{ alignItems: "center", marginTop: 60 }}>
               <Ionicons
                 name="clipboard-outline"
                 size={48}
                 color={subTextColor}
               />
-
               <RNText
                 style={{
                   color: textColor,
@@ -1318,7 +1166,6 @@ ${JSON.stringify(taskInformation)}`,
       </View>
 
       {/* FAB */}
-
       {!selectionMode && (
         <TouchableOpacity
           style={styles.fabButton}
@@ -1342,7 +1189,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
   searchContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -1352,20 +1198,17 @@ const styles = StyleSheet.create({
     height: 46,
     marginBottom: 8,
   },
-
   searchInput: {
     flex: 1,
     fontSize: 14,
     height: "100%",
   },
-
   legendContainer: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     paddingVertical: 2,
   },
-
   legendBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -1375,56 +1218,42 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 4,
   },
-
   legendText: {
     fontSize: 11,
     fontWeight: "700",
   },
-
   taskCard: {
     borderRadius: 16,
     borderWidth: 1,
     padding: 16,
     marginBottom: 12,
-
     shadowColor: "#000",
-
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 8,
-
     elevation: 2,
   },
-
   cardHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-
   priorityBadge: {
     paddingHorizontal: 9,
     paddingVertical: 5,
     borderRadius: 10,
     marginLeft: 8,
   },
-
   cardFooter: {
     flexDirection: "row",
     marginTop: 13,
     marginLeft: 33,
     gap: 12,
   },
-
   footerItem: {
     flexDirection: "row",
     alignItems: "center",
   },
-
   checkbox: {
     width: 23,
     height: 23,
@@ -1434,7 +1263,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 8,
   },
-
   aiRecommendation: {
     flexDirection: "row",
     alignItems: "center",
@@ -1443,7 +1271,6 @@ const styles = StyleSheet.create({
     padding: 9,
     borderRadius: 10,
   },
-
   aiMainButton: {
     minHeight: 46,
     borderRadius: 14,
@@ -1452,21 +1279,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 10,
   },
-
   aiMainButtonText: {
     color: "#FFFFFF",
     fontSize: 13,
     fontWeight: "800",
     marginLeft: 7,
   },
-
   recommendationCard: {
     borderRadius: 14,
     borderWidth: 1,
     padding: 13,
     marginBottom: 10,
   },
-
   actionBar: {
     flexDirection: "row",
     gap: 10,
@@ -1475,7 +1299,6 @@ const styles = StyleSheet.create({
     padding: 10,
     marginBottom: 8,
   },
-
   actionButton: {
     flex: 1,
     minHeight: 42,
@@ -1484,39 +1307,26 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   actionButtonText: {
     color: "#FFFFFF",
     fontSize: 13,
     fontWeight: "800",
     marginLeft: 5,
   },
-
   fabButton: {
     position: "absolute",
     right: 22,
     bottom: 22,
-
     width: 64,
     height: 64,
-
     borderRadius: 32,
-
     backgroundColor: "#6366F1",
-
     alignItems: "center",
     justifyContent: "center",
-
     shadowColor: "#6366F1",
-
-    shadowOffset: {
-      width: 0,
-      height: 6,
-    },
-
+    shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.4,
     shadowRadius: 10,
-
     elevation: 8,
   },
 });

@@ -26,12 +26,13 @@ import {
 import OpenAI from "openai";
 
 import CssThinkingLoader from "../../components/utils/CssThinkingLoader";
-import { GROQ_CONFIG } from "../../../keys"; // Import key & config from your gitignored file
+import { GROQ_CONFIG } from "../../../keys";
 
 // Initialize OpenAI client configured for Groq endpoints
 const groq = new OpenAI({
   baseURL: GROQ_CONFIG.BASE_URL,
   apiKey: GROQ_CONFIG.API_KEY,
+  dangerouslyAllowBrowser: true,
 });
 
 export default function TaskDashboard({ navigation }: any) {
@@ -52,7 +53,7 @@ export default function TaskDashboard({ navigation }: any) {
   // Modals
   const [showAIChat, setShowAIChat] = useState(false);
   const [chatMessages, setChatMessages] = useState<
-    { role: string; content: string }[]
+    { role: "user" | "assistant" | "system"; content: string }[]
   >([]);
   const [chatInput, setChatInput] = useState("");
   const [isAiTyping, setIsAiTyping] = useState(false);
@@ -162,24 +163,61 @@ export default function TaskDashboard({ navigation }: any) {
     }
   };
 
-  // --- GROQ API: Generate Quick AI Suggestion ---
+  // --- GROQ HELPER FUNCTION ---
+  const callGroqChat = async (
+    messages: { role: "system" | "user" | "assistant"; content: string }[],
+  ) => {
+    const response = await groq.chat.completions.create({
+      model: GROQ_CONFIG.MODEL,
+      messages: messages as any,
+      temperature: 0.6,
+    });
+    return response.choices[0]?.message?.content?.trim() || "";
+  };
+
+  // --- GROQ API: Generate Dynamic AI Suggestion ---
   const handleGenerateAISuggestion = async () => {
     setIsGeneratingSuggestion(true);
     try {
-      const prompt = `Give a 2-sentence quick motivational tip and priority recommendation for ${
-        userData?.displayName || userData?.name || "the user"
-      }. They have ${activeTasks.length} active tasks and ${overdueTasks.length} overdue tasks. Keep it concise.`;
+      const sortedActiveTasks = [...activeTasks].sort(
+        (a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime(),
+      );
 
-      const response = await groq.chat.completions.create({
-        model: GROQ_CONFIG.MODEL,
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.7,
-      });
+      const topTasksContext = sortedActiveTasks
+        .slice(0, 3)
+        .map(
+          (t) =>
+            `- "${t.title}" (Due: ${t.dueDate || "N/A"}, Priority: ${
+              t.priority || "Normal"
+            })`,
+        )
+        .join("\n");
 
-      const replyText =
-        response.choices[0]?.message?.content?.trim() ??
-        "Focus on your most urgent task today!";
-      setAiSuggestion(replyText);
+      const prompt = `User Name: ${
+        userData?.displayName || userData?.name || "User"
+      }
+Today's Date: ${today}
+Active Tasks Count: ${activeTasks.length}
+Overdue Tasks Count: ${overdueTasks.length}
+
+Top Pending Tasks:
+${topTasksContext || "No upcoming tasks."}
+
+Instructions:
+Give a specific 2-sentence productivity tip. Directly mention 1 specific task title by name that they should focus on first based on due dates and priorities. Keep it motivating and concise.`;
+
+      const replyText = await callGroqChat([
+        {
+          role: "system",
+          content:
+            "You are an intelligent project productivity coach. Give a 2-sentence actionable tip referencing specific task titles.",
+        },
+        { role: "user", content: prompt },
+      ]);
+
+      setAiSuggestion(
+        replyText || "Focus on your most urgent task today to keep momentum!",
+      );
     } catch (error) {
       console.error("Groq AI Suggestion Error:", error);
       setAiSuggestion(
@@ -190,55 +228,56 @@ export default function TaskDashboard({ navigation }: any) {
     }
   };
 
-  // --- GROQ API: Multi-turn Assistant Chat ---
+  // --- GROQ API: Multi-turn Assistant Chat with Full Task Data ---
   const handleSendAiMessage = async () => {
     if (!chatInput.trim()) return;
 
     const userText = chatInput.trim();
-    const userMsg = { role: "user" as const, content: userText };
-    setChatMessages((prev) => [...prev, userMsg]);
+    const newHistory = [
+      ...chatMessages,
+      { role: "user" as const, content: userText },
+    ];
+    setChatMessages(newHistory);
     setChatInput("");
     setIsAiTyping(true);
 
-    // 1. Explicitly type systemMsg role as 'system'
+    const formattedTasksList = tasks.map((t) => ({
+      title: t.title || "Untitled Task",
+      dueDate: t.dueDate || "No Due Date",
+      status: t.status || "Pending",
+      priority: t.priority || "Normal",
+      category: t.category || "General",
+    }));
+
     const systemMsg = {
       role: "system" as const,
-      content: `You are an AI Project Management Assistant. The user's name is ${
+      content: `You are an AI Project Management Assistant for ${
         userData?.displayName || userData?.name || "User"
-      }. Current status: Completed ${completedTasksCount} out of ${
-        tasks.length
-      } tasks. They have ${overdueTasks.length} overdue tasks across ${
-        activeTasks.length
-      } active tasks. Keep your answers concise, helpful, and focused on task management and productivity.`,
+      }.
+    
+Current Today's Date: ${today}
+
+Full User Task List:
+${JSON.stringify(formattedTasksList, null, 2)}
+
+Instructions:
+- Use the task list above to answer specific questions about task titles, due dates, priorities, and deadlines.
+- If the user asks about tasks due in the next two weeks, compare their 'dueDate' against today's date (${today}).
+- Keep your answers concise, helpful, and directly reference the user's tasks when asked.
+- Keep responses concise and easy to read on mobile.
+- Use clean bullet points instead of complex tables for lists.`,
     };
 
     try {
-      // 2. Ensure role is typed as 'assistant' | 'user' explicitly
-      const formattedHistory = chatMessages.map((msg) => ({
-        role: (msg.role === "assistant" ? "assistant" : "user") as
-          | "assistant"
-          | "user",
-        content: msg.content,
-      }));
-
-      const response = await groq.chat.completions.create({
-        model: GROQ_CONFIG.MODEL,
-        // 3. Pass typed array
-        messages: [
-          systemMsg,
-          ...formattedHistory,
-          { role: "user" as const, content: userText },
-        ],
-        temperature: 0.6,
-      });
-
-      const replyText =
-        response.choices[0]?.message?.content ??
-        "Sorry, I couldn't process that request right now.";
+      const replyText = await callGroqChat([systemMsg, ...newHistory]);
 
       setChatMessages((prev) => [
         ...prev,
-        { role: "assistant", content: replyText },
+        {
+          role: "assistant",
+          content:
+            replyText || "Sorry, I couldn't process that request right now.",
+        },
       ]);
     } catch (error: any) {
       console.error("Groq Chat Error:", error);
